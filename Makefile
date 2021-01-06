@@ -1,5 +1,5 @@
 subnautica :main.cpp
-	g++ $< -o $@
+	g++ -gdwarf-4 $< -o $@
 
 clean:
 	-@rm subnautica
