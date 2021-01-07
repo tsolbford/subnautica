@@ -75,6 +75,7 @@ int main(int argc, char** argv)
                 else
                 {
                     header.syncword = binary[ndx];
+                    validFrames+=2;
                 }
             }
             else
