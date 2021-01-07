@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#include <pulse/simple.h>
+
 #pragma pack(push, 1)
 struct frame_header
 {
@@ -18,6 +20,18 @@ struct frame_header
     uint8_t crc_check;
 };
 #pragma pack(pop)
+
+void writeAudioResource(uint8_t* data, int32_t size)
+{
+    static const pa_sample_spec spec = { .format = PA_SAMPLE_S16LE, .rate = 44100, .channels = 2 };
+    pa_simple* stream = pa_simple_new(NULL, NULL, PA_STREAM_PLAYBACK, NULL, "a2dp_track", &spec, NULL, NULL, NULL);
+    if(stream != NULL)
+    {
+        pa_simple_write(stream, data, size, NULL);
+        pa_simple_drain(stream, NULL);
+        pa_simple_free(stream);
+    }
+}
 
 int main(int argc, char** argv)
 {
