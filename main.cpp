@@ -37,75 +37,119 @@ int main(int argc, char** argv)
         size_t read = fread(binary, 1, size, audio);
         if(read != size) return -1;
 
-        frame_header header;
-        header.syncword = binary[0];
+        int32_t ndx = 0;
+        bool initialFrame = true;
 
-        if(header.syncword != 0x9C)
+        int32_t validFrames = 0;
+        int32_t invalidFrames = 0;
+        while(ndx < size)
         {
-            printf("Invalid frame!");
-            return -1;
+            frame_header header;
+            header.syncword = binary[ndx];
+            if(header.syncword != 0x9C)
+            {
+                invalidFrames++;
+                while(ndx < size && binary[ndx] != 0x9C)
+                {
+                    ndx++; // Scrub forward
+                }
+
+                if(ndx >= size)
+                {
+                    return -1;
+                }
+                else
+                {
+                    header.syncword = binary[ndx];
+                }
+            }
+            else
+            {
+                validFrames+=2;
+            }
+
+            header.sampling_frequency = binary[ndx + 1] >> 6;
+            header.blocks = (binary[ndx + 1] >> 4) & 0x3;
+            header.channel_mode = (binary[ndx + 1] >> 2) & 0x3;
+            header.allocation_method = (binary[ndx + 1] >> 1) & 0x1;
+            header.subbands = binary[ndx + 1] & 0x1;
+            header.bitpool = binary[ndx + 2];
+            header.crc_check = binary[ndx + 3];
+
+            float frequency = 0.0f;
+            switch(header.sampling_frequency)
+            {
+                case 0:
+                    frequency = 16;
+                    break;
+                case 1:
+                    frequency = 32;
+                    break;
+                case 2:
+                    frequency = 44.1;
+                    break;
+                case 3:
+                    frequency = 48;
+                    break;
+            }
+
+            const int32_t num_blocks = (header.blocks+1)*4;
+
+            int32_t num_channels = 2;
+            std::string mode = "Unknown";
+            switch(header.channel_mode)
+            {
+                case 0:
+                    mode = "Single";
+                    num_channels = 1;
+                    break;
+                case 1:
+                    mode = "Dual channel";
+                    break;
+                case 2:
+                    mode = "Stereo";
+                    break;
+                case 3:
+                    mode = "Joint stereo";
+                    break;
+            }
+
+            // Current Bluetooth stacks usually negotiate the following parameters,
+            // Joint Stereo, 8 bands, 16 blocks, Loudness and a bitpool of 2 to 53.
+            if(initialFrame)
+            {
+                initialFrame = false;
+                printf("Sampling frequency: %.1f kHz\n", frequency);
+                printf("Block size: %d\n", num_blocks);
+                printf("Channel mode: %s\n", mode.c_str());
+                printf("Allocation method: %s\n", header.allocation_method ? "SNR": "Loudness");
+                printf("Subbands: %s\n", header.subbands ? "8": "4");
+                printf("Bitpool: %d\n", header.bitpool);
+            }
+
+            const int32_t num_subbands = header.subbands ? 8: 4;
+            const int32_t frame_length =
+                (4 + (4*num_subbands*num_channels)/8)
+                +((1*num_subbands) + (num_blocks*header.bitpool))/8;
+
+            const int32_t count = (num_subbands*num_channels)/2;
+
+            // Could do Crc here
+            // audio_samples
+            int32_t cursor = ndx + 4 + count;
+            while(cursor < (ndx + frame_length*2))
+            {
+                binary[cursor];
+                cursor++;
+            }
+
+            ndx = cursor;
         }
-
-        header.sampling_frequency = binary[1] >> 6;
-        header.blocks = (binary[1] >> 4) & 0x3;
-        header.channel_mode = (binary[1] >> 2) & 0x3;
-        header.allocation_method = (binary[1] >> 1) & 0x1;
-        header.subbands = binary[1] & 0x1;
-        header.bitpool = binary[2];
-        header.crc_check = binary[3];
-
-        float frequency = 0.0f;
-        switch(header.sampling_frequency)
-        {
-            case 0:
-                frequency = 16;
-                break;
-            case 1:
-                frequency = 32;
-                break;
-            case 2:
-                frequency = 44.1;
-                break;
-            case 3:
-                frequency = 48;
-                break;
-        }
-
-        std::string mode = "Unknown";
-        switch(header.channel_mode)
-        {
-            case 0:
-                mode = "Single";
-                break;
-            case 1:
-                mode = "Dual channel";
-                break;
-            case 2:
-                mode = "Stereo";
-                break;
-            case 3:
-                mode = "Joint stereo";
-                break;
-        }
-
-        // Current Bluetooth stacks usually negotiate the following parameters,
-        // Joint Stereo, 8 bands, 16 blocks, Loudness and a bitpool of 2 to 53.
-
-        printf("Sampling frequency: %.1f kHz\n", frequency);
-        printf("Block size: %d\n", (header.blocks+1)*4);
-        printf("Channel mode: %s\n", mode.c_str());
-        printf("Allocation method: %s\n", header.allocation_method ? "SNR": "Loudness");
-        printf("Subbands: %s\n", header.subbands ? "8": "4");
-        printf("Bitpool: %d\n", header.bitpool);
-
-        int32_t i = 0;
-        const int32_t count = (header.subbands ? 8: 4)/2;
-        binary[5 + count];
-
-        // audio_samples
 
         free(binary);
         fclose(audio);
+
+        printf("Processed %d frames, skipped %d\n", validFrames, invalidFrames);
     }
 
     return 0;
