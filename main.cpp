@@ -52,18 +52,28 @@ int main(int argc, char** argv)
         if(read != size) return -1;
 
         int32_t ndx = 0;
-        bool initialFrame = true;
+        bool initial_frame = true;
 
-        int32_t validFrames = 0;
-        int32_t invalidFrames = 0;
+        int32_t valid_frames = 0;
+        int32_t invalid_frames = 0;
+        uint8_t previous_settings = 0;
+        uint8_t previous_bitpool = 0;
         while(ndx < size)
         {
             frame_header header;
             header.syncword = binary[ndx];
-            if(header.syncword != 0x9C)
+            if(!initial_frame &&
+                  (header.syncword != 0x9C
+                || binary[ndx + 1] != previous_settings
+                || binary[ndx + 2] != previous_bitpool) // Unlikely data changes midstream
+            )
             {
-                invalidFrames++;
-                while(ndx < size && binary[ndx] != 0x9C)
+                invalid_frames++;
+                while(ndx < size &&
+                     !(binary[ndx] == 0x9C
+                    && binary[ndx + 1] == previous_settings
+                    && binary[ndx + 2] == previous_bitpool)
+                )
                 {
                     ndx++; // Scrub forward
                 }
@@ -75,12 +85,12 @@ int main(int argc, char** argv)
                 else
                 {
                     header.syncword = binary[ndx];
-                    validFrames+=2;
+                    valid_frames+=2;
                 }
             }
             else
             {
-                validFrames+=2;
+                valid_frames+=2;
             }
 
             header.sampling_frequency = binary[ndx + 1] >> 6;
@@ -90,6 +100,9 @@ int main(int argc, char** argv)
             header.subbands = binary[ndx + 1] & 0x1;
             header.bitpool = binary[ndx + 2];
             header.crc_check = binary[ndx + 3];
+
+            previous_settings = binary[ndx + 1];
+            previous_bitpool = header.bitpool;
 
             float frequency = 0.0f;
             switch(header.sampling_frequency)
@@ -131,9 +144,9 @@ int main(int argc, char** argv)
 
             // Current Bluetooth stacks usually negotiate the following parameters,
             // Joint Stereo, 8 bands, 16 blocks, Loudness and a bitpool of 2 to 53.
-            if(initialFrame)
+            if(initial_frame)
             {
-                initialFrame = false;
+                initial_frame = false;
                 printf("Sampling frequency: %.1f kHz\n", frequency);
                 printf("Block size: %d\n", num_blocks);
                 printf("Channel mode: %s\n", mode.c_str());
@@ -164,7 +177,7 @@ int main(int argc, char** argv)
         free(binary);
         fclose(audio);
 
-        printf("Processed %d frames, skipped %d\n", validFrames, invalidFrames);
+        printf("Processed %d frames, skipped %d\n", valid_frames-1, invalid_frames);
     }
 
     return 0;
