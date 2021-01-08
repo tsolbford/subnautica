@@ -22,6 +22,9 @@ struct frame_header
 };
 #pragma pack(pop)
 
+#define SYNC_WORD 0x9C
+#define PCM_DATA_BUFFER_SIZE 1024
+
 void writeAudioResource(void* data, int32_t size)
 {
     static const pa_sample_spec spec = { .format = PA_SAMPLE_S16LE, .rate = 44100, .channels = 2 };
@@ -125,8 +128,8 @@ int main(int argc, char** argv)
         int32_t valid_frames = 0;
         int32_t invalid_frames = 0;
 
-        int16_t pcm_data[1024];
-        uint32_t pcm_bytes = 1024;
+        int16_t pcm_data[PCM_DATA_BUFFER_SIZE];
+        uint32_t pcm_bytes = PCM_DATA_BUFFER_SIZE*sizeof(int16_t);
         uint32_t frame_bytes = size;
         while(frame_bytes > 0)
         {
@@ -141,7 +144,7 @@ int main(int argc, char** argv)
                 invalid_frames++;
                 binary++; // Nudge off magic number in case compressed data was at fault
                 while(frame_bytes &&
-                     !(binary[0] == 0x9C
+                     !(binary[0] == SYNC_WORD
                     && binary[1] == previousSettings
                     && binary[2] == header.bitpool)
                 )
@@ -151,7 +154,7 @@ int main(int argc, char** argv)
                 }
                 status = OI_CODEC_SBC_DecoderReset(&context, context_data, sizeof(context_data), 2, 2, false);
             }
-            pcm_bytes = 1024; // Reset available
+            pcm_bytes = PCM_DATA_BUFFER_SIZE*sizeof(int16_t); // Reset available
         }
 
         free(start);
