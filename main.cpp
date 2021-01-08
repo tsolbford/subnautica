@@ -2,6 +2,7 @@
 // Section 12 Appendix B: Technical Specification of SBC
 #include <string>
 #include <stdio.h>
+#include <string.h>
 #include <stdint.h>
 #include <stdlib.h>
 
@@ -24,17 +25,26 @@ struct frame_header
 
 #define SYNC_WORD 0x9C
 #define PCM_DATA_BUFFER_SIZE 1024
+#define BUFFERED_FRAMES 2048
 
-void writeAudioResource(void* data, int32_t size)
+pa_simple* stream = nullptr;
+
+void queueAudioFrame(void* data, int32_t size)
 {
     static const pa_sample_spec spec = { .format = PA_SAMPLE_S16LE, .rate = 44100, .channels = 2 };
-    pa_simple* stream = pa_simple_new(NULL, NULL, PA_STREAM_PLAYBACK, NULL, "a2dp_track", &spec, NULL, NULL, NULL);
-    if(stream != NULL)
+    if(stream == nullptr)
     {
-        pa_simple_write(stream, data, size, NULL);
-        pa_simple_drain(stream, NULL);
-        pa_simple_free(stream);
+        stream = pa_simple_new(nullptr, nullptr, PA_STREAM_PLAYBACK, nullptr, "a2dp_track", &spec, nullptr, nullptr, nullptr);
     }
+    pa_simple_write(stream, data, size, nullptr);
+}
+
+void flushAudio()
+{
+    pa_simple_drain(stream, nullptr);
+    pa_simple_free(stream);
+
+    stream = nullptr;
 }
 
 int main(int argc, char** argv)
@@ -137,11 +147,18 @@ int main(int argc, char** argv)
             if(OI_SUCCESS(status))
             {
                 valid_frames++;
-                writeAudioResource(pcm_data, pcm_bytes);
+                queueAudioFrame(pcm_data, pcm_bytes);
+                if(valid_frames % BUFFERED_FRAMES == 0)
+                {
+                    flushAudio();
+                }
             }
             else
             {
                 invalid_frames++;
+                memset(pcm_data, '\0', pcm_bytes);
+                queueAudioFrame(pcm_data, pcm_bytes); // Filler data
+                queueAudioFrame(pcm_data, pcm_bytes);
                 binary++; // Nudge off magic number in case compressed data was at fault
                 while(frame_bytes &&
                      !(binary[0] == SYNC_WORD
